@@ -56,23 +56,25 @@ metric = st.radio(
     horizontal=True
 )
 
+# Vertical bar chart
 fig_fin = px.bar(
     filtered_df,
-    x=metric,
-    y="APERD",
-    orientation="h",
-    color=metric,
-    color_continuous_scale="Blues",
-    title=f"{metric} by APERD"
+    x="APERD",       # APERD on X-axis
+    y=metric,        # SID / IFUA / AUM on Y-axis
+    color="APERD",   # give each APERD a distinct color
+    color_discrete_sequence=px.colors.qualitative.Pastel1
 )
 
+# Layout adjustments
+fig_fin.update_traces(textposition="outside")  # put text above bars
 fig_fin.update_layout(
-    yaxis_title="APERD",
-    xaxis_title=metric,
+    xaxis_title="APERD",
+    yaxis_title=metric,
     height=600,
-    coloraxis_showscale=False
+    showlegend=False  # hide legend if colors are self-explanatory
 )
 
+# Display in Streamlit
 st.plotly_chart(fig_fin, use_container_width=True)
 
 # ---------------- Generation Distribution ----------------
