@@ -67,7 +67,7 @@ filtered_df = df_aperd_filtered[
 ]
 
 if filtered_df.empty:
-    st.warning("No data available for the selected filters.")
+    st.warning("No data available for the selected filters. Choose Aperd/multiple Aperd in sidebar to show the Graphics.")
     st.stop()
 
 # --------------------------------------------------
