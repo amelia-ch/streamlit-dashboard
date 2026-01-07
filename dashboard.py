@@ -2,117 +2,190 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# ---------------- Page Setup ----------------
+# --------------------------------------------------
+# Page & Theme
+# --------------------------------------------------
 st.set_page_config(
-    page_title="APERD Analytics Dashboard",
+    page_title="Generational AUM Dashboard",
     layout="wide"
 )
 
-st.title("📊 APERD Analytics Dashboard")
+st.markdown("""
+<style>
+    .block-container {padding-top: 2rem;}
+    h1, h2, h3 {color: #003366;}
+</style>
+""", unsafe_allow_html=True)
 
-# ---------------- Sample Data ----------------
-# Replace with your real 30-row dataset
-df = pd.read_excel('dashboard.xlsx')  # or pd.read_excel()
+st.title("📊 Generational Investors & AUM Dashboard")
 
-# ---------------- Sidebar Controls ----------------
+# --------------------------------------------------
+# Load Data
+# --------------------------------------------------
+DATA_PATH = "dashboard.xlsx"
+
+@st.cache_data
+def load_data():
+    df = pd.read_excel(DATA_PATH)
+    df["Aperd"] = df["Aperd"].astype(str)
+    return df
+
+df = load_data()
+
+# --------------------------------------------------
+# Sidebar Controls (Cascading Filters)
+# --------------------------------------------------
 st.sidebar.header("Controls")
 
-selected_aperd = st.sidebar.multiselect(
-    "Select APERD",
-    options=df["APERD"].unique(),
-    default=df["APERD"].unique()
-)
-
-sort_metric = st.sidebar.selectbox(
-    "Sort by",
-    ["AUM (Bn)", "SID", "IFUA"]
-)
-
-top_n = st.sidebar.selectbox(
-    "Show Top",
-    ["All", 5, 10, 15]
-)
-
-filtered_df = df[df["APERD"].isin(selected_aperd)]
-filtered_df = filtered_df.sort_values(sort_metric, ascending=False)
-
-if top_n != "All":
-    filtered_df = filtered_df.head(top_n)
-
-# ---------------- KPI Summary ----------------
-st.subheader("📌 Overall Summary")
-
-col1, col2, col3 = st.columns(3)
-col1.metric("Total SID", f"{filtered_df['SID'].sum():,.0f}")
-col2.metric("Total IFUA", f"{filtered_df['IFUA'].sum():,.0f}")
-col3.metric("Total AUM (Bn)", f"{filtered_df['AUM (Bn)'].sum():,.2f}")
-
-# ---------------- Financial Metrics Chart ----------------
-st.subheader("💰 Financial Metrics Comparison")
-
-metric = st.radio(
+metric_type = st.sidebar.radio(
     "Metric",
-    ["AUM (Bn)", "SID", "IFUA"],
-    horizontal=True
+    ["AUM", "Investors"]
 )
 
-# Vertical bar chart
-fig_fin = px.bar(
-    filtered_df,
-    x="APERD",       # APERD on X-axis
-    y=metric,        # SID / IFUA / AUM on Y-axis
-    color="APERD",   # give each APERD a distinct color
-    color_discrete_sequence=px.colors.qualitative.Pastel1
+# Aperd filter
+aperd_order = list(df["Aperd"].dropna().unique())
+
+aperd_sel = st.sidebar.multiselect(
+    "Aperd",
+    options=aperd_order,
+    default=None
 )
 
-# Layout adjustments
-fig_fin.update_traces(textposition="outside")  # put text above bars
-fig_fin.update_layout(
-    xaxis_title="APERD",
-    yaxis_title=metric,
-    height=600,
-    showlegend=False  # hide legend if colors are self-explanatory
+df_aperd_filtered = df[df["Aperd"].isin(aperd_sel)]
+
+# Fund filter depends on Aperd
+available_funds = sorted(df_aperd_filtered["FundName"].unique())
+
+fund_sel = st.sidebar.multiselect(
+    "Fund Name",
+    options=available_funds,
+    default=available_funds
 )
 
-# Display in Streamlit
-st.plotly_chart(fig_fin, use_container_width=True)
+filtered_df = df_aperd_filtered[
+    df_aperd_filtered["FundName"].isin(fund_sel)
+]
 
-# ---------------- Generation Distribution ----------------
-st.subheader("👥 Investor Generation Mix (Percentage View)")
+if filtered_df.empty:
+    st.warning("No data available for the selected filters.")
+    st.stop()
 
-gen_cols = ["Baby Boomers", "Gen X", "Gen Y", "Gen Z", "Alpha"]
+# --------------------------------------------------
+# Column Definitions
+# --------------------------------------------------
+gen_cols = {
+    "Baby Boomers": ("Baby Boomers", "AUM Baby Boomers"),
+    "Gen X": ("Gen X", "AUM Gen X"),
+    "Gen Y": ("Gen Y", "AUM Gen Y"),
+    "Gen Z": ("Gen Z", "AUM Gen Z"),
+    "Gen Alpha": ("Gen Alpha", "AUM Gen Alpha"),
+}
 
-gen_df = filtered_df.copy()
-gen_df["Total"] = gen_df[gen_cols].sum(axis=1)
+value_cols = [
+    v[0] if metric_type == "Investors" else v[1]
+    for v in gen_cols.values()
+]
 
-for col in gen_cols:
-    gen_df[col] = gen_df[col] / gen_df["Total"] * 100
+# --------------------------------------------------
+# KPI
+# --------------------------------------------------
+total_value = filtered_df[value_cols].sum().sum()
 
-gen_melt = gen_df.melt(
-    id_vars="APERD",
-    value_vars=gen_cols,
+st.metric(
+    f"Total {metric_type}",
+    f"{total_value:,.2f}" if metric_type == "AUM" else f"{int(total_value):,}"
+)
+
+# --------------------------------------------------
+# % Share by Generation
+# --------------------------------------------------
+share_df = (
+    filtered_df[value_cols]
+    .sum()
+    .reset_index()
+)
+
+share_df.columns = ["Generation", "Value"]
+share_df["% Share"] = share_df["Value"] / share_df["Value"].sum() * 100
+
+fig_share = px.pie(
+    share_df,
+    names="Generation",
+    values="% Share",
+    hole=0.45,
+    title=f"% Share by Generation ({metric_type})"
+)
+
+# --------------------------------------------------
+# Bar Chart by Aperd (Categorical)
+# --------------------------------------------------
+aperd_df = (
+    filtered_df
+    .groupby("Aperd", observed=True)[value_cols]
+    .sum()
+    .reset_index()
+)
+
+aperd_df = aperd_df.melt(
+    id_vars="Aperd",
     var_name="Generation",
-    value_name="Percentage"
+    value_name="Value"
 )
 
-fig_gen = px.bar(
-    gen_melt,
-    x="Percentage",
-    y="APERD",
+fig_aperd = px.bar(
+    aperd_df,
+    x="Aperd",
+    y="Value",
     color="Generation",
-    orientation="h",
-    title="Generation Distribution by APERD (100%)",
-    color_discrete_sequence=px.colors.qualitative.Set2
+    barmode="group",
+    title=f"{metric_type} by Aperd"
 )
 
-fig_gen.update_layout(
-    xaxis_title="Percentage (%)",
-    yaxis_title="APERD",
-    height=600
+fig_aperd.update_xaxes(
+    categoryorder="array",
+    categoryarray=aperd_order
 )
 
-st.plotly_chart(fig_gen, use_container_width=True)
+# --------------------------------------------------
+# Fund-wise Stacked Bar
+# --------------------------------------------------
+fund_df = (
+    filtered_df
+    .groupby("FundName")[value_cols]
+    .sum()
+    .reset_index()
+)
 
-# ---------------- Data Table ----------------
-with st.expander("📄 View Raw Data"):
+fund_df = fund_df.melt(
+    id_vars="FundName",
+    var_name="Generation",
+    value_name="Value"
+)
+
+fig_fund = px.bar(
+    fund_df,
+    x="FundName",
+    y="Value",
+    color="Generation",
+    barmode="stack",
+    title=f"Fund-wise {metric_type} Distribution"
+)
+
+# --------------------------------------------------
+# Layout
+# --------------------------------------------------
+col1, col2 = st.columns(2)
+
+with col1:
+    st.plotly_chart(fig_aperd, use_container_width=True)
+
+with col2:
+    st.plotly_chart(fig_share, use_container_width=True)
+
+st.plotly_chart(fig_fund, use_container_width=True)
+
+# --------------------------------------------------
+# Data Preview
+# --------------------------------------------------
+with st.expander("📄 View Filtered Data"):
     st.dataframe(filtered_df, use_container_width=True)
